@@ -1,5 +1,5 @@
 import requests
-
+from collections import defaultdict
 import json
 
 def get_matchup_data(league_id, week):
@@ -20,42 +20,81 @@ def get_matchup_data(league_id, week):
         print(f"An error occurred: {e}")
         return None
 
+    
+def get_roster_owner(roster_id):
+    with open("owners.json", "r") as f:
+        roster_owners = json.load(f)
+    roster_id_string = str(roster_id)
+    team_name = roster_owners.get(roster_id_string, {}).get("team_name", "not found")
+
+    return team_name
+
 def convert_player_names(matchup):
     players_points = matchup.get("players_points")
-    #for player in players_points:
-        #match_id_name(player)
-    with open("/Users/jacobself/Github/DynastyBrosAI/SleeperData/players.json", "r") as f:
+
+    with open("players.json", "r") as f:
         player_data = json.load(f)
     enriched_player_points = {
         player_id: {
             "player_name": player_data.get(player_id, {}).get("player_name", "Unknown Player"),
             "points": points,
-            "position": player_data.get(player_id, {}).get("player_position", "Unkown Player")
+            "position": player_data.get(player_id, {}).get("player_position", "Unknown Player")
         }
         for player_id, points in players_points.items()
     }
     return enriched_player_points
-    
 
-def match_id_name(player):
-    with open("players.json", "r") as f:
-        player_data = json.load(f)
-    enriched_player_points = {
-        player_id: {
-            "player_name": player_data["player_name"],
-            "points": points,
-            "position": player_data["player_position"]
-        }
-        for player_id, points in player
-    }
+def get_matchup_info(matchup):
+    roster_id = matchup.get("roster_id")
+    matchup_id = matchup.get("matchup_id")
+
+    return roster_id, matchup_id
+
+def starter_vs_bench(matchup, enriched_players_points):
+    starters = []
+    bench = []
+    for key, value in enriched_players_points.items():
+        if key in matchup.get("starters"):
+            starters.append({key: value})
+        else:
+            bench.append({key: value})
+    return starters, bench
 
 def main():
-    league_id = "1062786980259520512"
-    week = "11"
+    league_id = ""
+    week = "13"
     matchup_data = get_matchup_data(league_id, week)
 
+    starters_bench_data = []
+
     for matchup in matchup_data:
-        convert_player_names(matchup)
+        roster_id, matchup_id = get_matchup_info(matchup)
+        team_name = get_roster_owner(roster_id)
+        enriched_players_points = convert_player_names(matchup)
+        starters, bench = starter_vs_bench(matchup, enriched_players_points)
+        starters_bench_data.append(
+            {
+                "team_name": team_name,
+                "matchup_id": matchup_id,
+                "points_for": matchup["points"],
+                "starters": starters,
+                "bench": bench
+            }
+            )
+    grouped_matchups = defaultdict(list)
+
+    for entry in starters_bench_data:
+        grouped_matchups[entry['matchup_id']].append(entry)
+
+    grouped_matchups = dict(grouped_matchups)
+
+    matchup_results = [
+        {"matchup_id": matchup_id, "teams": teams}
+        for matchup_id, teams in grouped_matchups.items()
+    ]
+    with open("matchup_results.json", "w") as json_file:
+        json.dump(matchup_results, json_file, indent=4)
+
 
 if __name__ == "__main__":
     main()
